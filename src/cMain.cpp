@@ -63,7 +63,7 @@ cMain::cMain()
     Theme::EnsurePixelFont();
 
     // Window / taskbar icon: all sizes from the embedded .ico, fall back to the XPM.
-    wxIconBundle icons(L"appicon", nullptr);
+    wxIconBundle icons(L"CONTROLLIN_ICON", nullptr);
     if (icons.IsEmpty()) icons.AddIcon(wxIcon(icon_xpm));
     this->SetIcons(icons);
 

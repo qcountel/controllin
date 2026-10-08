@@ -2,10 +2,7 @@
 #include <winres.h>
 
 // Named icon: Explorer uses it for the .exe, wxIconBundle loads it for the window/taskbar.
-appicon ICON "icon\\icon.ico"
-
-// Named resource: Explorer uses it for the .exe, wxIconBundle loads it for the window/taskbar.
-appicon ICON "icon\\icon.ico"
+CONTROLLIN_ICON ICON "icon\\icon.ico"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 2,0,0,0
