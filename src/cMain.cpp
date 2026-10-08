@@ -211,17 +211,6 @@ void cMain::OnPlayButton(wxCommandEvent&) {
     this->worker = std::thread(&cMain::PlayWorker, this);
 }
 
-void cMain::OnPlayButton(wxCommandEvent&) {
-    if (this->busy.load()) return;
-    if (this->worker.joinable()) this->worker.join();
-
-    this->busy.store(true);
-    this->btn_Play->Enable(false);
-    this->btn_Play->SetCaption(L"...");
-
-    this->worker = std::thread(&cMain::PlayWorker, this);
-}
-
 void cMain::PlayWorker() {
     auto finish = [this](const std::wstring& msg) {
         this->postStatus(msg);
