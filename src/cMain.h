@@ -4,7 +4,6 @@
 #include "taskBarIcon.h"
 #include "flatButton.h"
 
-#include <wx/radiobut.h>
 #include <thread>
 #include <atomic>
 
@@ -13,27 +12,14 @@ wxDECLARE_EVENT(EVT_PLAY_STATUS, wxThreadEvent);
 
 class cMain : public wxFrame {
 public:
-    // Tab headers
+    // Header: PLAY tab + "Controllin +" (subscription) button
     FlatButton*   tab_Play = nullptr;
-    FlatButton*   tab_Settings = nullptr;
-
-    // Pages
-    wxPanel*      pagePlay = nullptr;
-    wxPanel*      pageSettings = nullptr;
+    FlatButton*   tab_Plus = nullptr;
 
     // Play page
+    wxPanel*      pagePlay = nullptr;
     FlatButton*   btn_Play = nullptr;
     wxStaticText* lbl_Status = nullptr;
-
-    // Settings page
-    wxRadioButton* radio_Local = nullptr;
-    wxRadioButton* radio_Github = nullptr;
-    wxTextCtrl*    txt_LocalPath = nullptr;
-    FlatButton*    btn_Browse = nullptr;
-    wxTextCtrl*    txt_McPath = nullptr;
-    FlatButton*    btn_Save = nullptr;
-
-    Config cfg;
 
     std::thread worker;
     std::atomic<bool> busy{ false };
@@ -41,22 +27,14 @@ public:
     cMain();
     virtual ~cMain() override;
 
-    // Navigation
-    void ShowPage(bool settings);
-    void OnTabPlay(wxCommandEvent& evt);
-    void OnTabSettings(wxCommandEvent& evt);
+    // Header
+    void OnPlus(wxCommandEvent& evt);
 
     // Play
     void OnPlayButton(wxCommandEvent& evt);
     void OnPlayStatus(wxThreadEvent& evt);
     void PlayWorker();
     void postStatus(const std::wstring& msg);
-
-    // Settings
-    void OnBrowse(wxCommandEvent& evt);
-    void OnSave(wxCommandEvent& evt);
-    void OnSourceChanged(wxCommandEvent& evt);
-    void refreshEnabledState();
 
     // Painting of the grey emblem on the Play page.
     void OnPlayPagePaint(wxPaintEvent& evt);

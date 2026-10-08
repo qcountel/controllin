@@ -31,6 +31,9 @@ namespace Theme {
     // Accent is intentionally monochrome (white) for selection highlights.
     inline const wxColour ACCENT        (255, 255, 255);
 
+    // Gold used only for the "Controllin +" (subscription) entry.
+    inline const wxColour GOLD          (255, 200, 60);
+
     // Registers the embedded Monocraft font once per process.
     inline void EnsurePixelFont() {
         static bool done = false;

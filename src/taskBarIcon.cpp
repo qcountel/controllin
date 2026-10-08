@@ -25,7 +25,7 @@ void taskBarIcon::onTaskBarDClick(wxTaskBarIconEvent &evt) {
 
 void taskBarIcon::onInjectMenu(wxCommandEvent &evt) {
     // Trigger the same code path as pressing the PLAY button.
-    wxCommandEvent playEvt(wxEVT_BUTTON, 102);
+    wxCommandEvent playEvt(wxEVT_BUTTON, 103); // ID_PLAY
     CMAIN_INSTANCE->OnPlayButton(playEvt);
     evt.Skip();
 }

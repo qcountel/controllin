@@ -18,6 +18,7 @@ public:
     void SetCaption(const wxString& s) { caption = s; Refresh(); }
     void SetButtonStyle(Style s) { style = s; Refresh(); }
     void SetSelected(bool on) { selected = on; Refresh(); }   // for STYLE_TAB
+    void SetTabAccent(const wxColour& c) { tabAccent = c; Refresh(); } // for STYLE_TAB: custom text colour
 
     bool Enable(bool enable = true) override;
 
@@ -26,6 +27,7 @@ private:
     wxColour colBase, colHover, colText;
     Style style = STYLE_STONE;
     bool selected = false;
+    wxColour tabAccent;   // invalid = default tab colours
     bool hovering = false;
     bool pressed = false;
 

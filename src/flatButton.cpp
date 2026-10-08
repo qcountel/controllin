@@ -76,7 +76,7 @@ void FlatButton::OnPaint(wxPaintEvent&) {
             dc.SetPen(*wxTRANSPARENT_PEN);
             dc.DrawRectangle(0, 0, w, h);
         }
-        wxColour fg = selected ? Theme::FG : Theme::FG_DIM;
+        wxColour fg = tabAccent.IsOk() ? tabAccent : (selected ? Theme::FG : Theme::FG_DIM);
         wxCoord tw, th;
         dc.GetTextExtent(caption, &tw, &th);
         DrawTextWithShadow(dc, caption, (w - tw) / 2, (h - th) / 2 - 2, fg);
