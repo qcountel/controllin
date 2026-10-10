@@ -12,6 +12,9 @@
 #include <wx/mstream.h>
 #include <wx/graphics.h>
 #include <wx/dcbuffer.h>
+#include <wx/clipbrd.h>
+#include <wx/menu.h>
+#include <wx/utils.h>
 
 #include <windows.h>
 #include <TlHelp32.h>

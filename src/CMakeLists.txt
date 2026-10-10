@@ -4,11 +4,13 @@ flatButton.cpp
 launcher.cpp
 FixFilePerms.cpp
 inject.cpp
+hwid.cpp
 pch.cpp
 taskBarIcon.cpp
 icon.rc)
 
 target_precompile_headers(${PROJECT_NAME} PRIVATE "pch.h")
+set_source_files_properties(hwid.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
 # The app icon is stored in git as base64 (icon/icon.ico.b64) and decoded here,
 # unless a real icon/icon.ico is already present.

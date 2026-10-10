@@ -18,6 +18,7 @@ public:
 
     // Play page
     wxPanel*      pagePlay = nullptr;
+    FlatButton*   btn_Version = nullptr;   // "VERSION: 1.16.100" — click to pick 1.16.100 / 26.52
     FlatButton*   btn_Play = nullptr;
     wxStaticText* lbl_Status = nullptr;
 
@@ -32,6 +33,8 @@ public:
 
     // Play
     void OnPlayButton(wxCommandEvent& evt);
+    void OnVersionButton(wxCommandEvent& evt);
+    void refreshVersionButton();
     void OnPlayStatus(wxThreadEvent& evt);
     void PlayWorker();
     void postStatus(const std::wstring& msg);

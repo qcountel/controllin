@@ -2,6 +2,7 @@
 #include "launcher.h"
 #include "config.h"
 #include "inject.h"
+#include "json.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -79,70 +80,102 @@ static bool HttpGet(const std::wstring& url, std::vector<char>& outData, std::ws
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Very small JSON string-value extractor (no external deps).
-// Finds the first "browser_download_url" that ends with .dll.
-// ---------------------------------------------------------------------------
-static std::string ExtractDllAssetUrl(const std::string& json) {
-    const std::string key = "\"browser_download_url\"";
-    size_t pos = 0;
-    while ((pos = json.find(key, pos)) != std::string::npos) {
-        size_t colon = json.find(':', pos + key.size());
-        if (colon == std::string::npos) break;
-        size_t firstQuote = json.find('"', colon);
-        if (firstQuote == std::string::npos) break;
-        size_t secondQuote = json.find('"', firstQuote + 1);
-        if (secondQuote == std::string::npos) break;
+static std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty()) return {};
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+    return w;
+}
 
-        std::string value = json.substr(firstQuote + 1, secondQuote - firstQuote - 1);
-        // Prefer .dll assets
-        if (value.size() >= 4 &&
-            _stricmp(value.c_str() + value.size() - 4, ".dll") == 0) {
-            return value;
-        }
-        pos = secondQuote + 1;
+// True if `title` contains `tag` as a separate word: "v2.0.5 1.16" has "1.16", but "v2.1.16" does not.
+// A longer version of the same line also matches ("1.16.100" for "1.16").
+static bool TitleHasTag(const std::string& title, const std::string& tag) {
+    size_t i = 0;
+    while (i < title.size()) {
+        while (i < title.size() && (title[i] == ' ' || title[i] == '\t' || title[i] == '[' || title[i] == '(')) ++i;
+        size_t j = i;
+        while (j < title.size() && title[j] != ' ' && title[j] != '\t' && title[j] != ']' && title[j] != ')') ++j;
+        std::string word = title.substr(i, j - i);
+        if (word == tag || (word.size() > tag.size() && word.compare(0, tag.size(), tag) == 0 && word[tag.size()] == '.'))
+            return true;
+        i = j + 1;
     }
-    return std::string();
+    return false;
+}
+
+// Finds the newest published release with `tag` in its title and a .dll asset.
+static bool FindReleaseDll(const std::string& json, const std::string& tag,
+                           std::string& outUrl, std::string& outName, std::string& outTitle) {
+    Json::JParser parser(json);
+    Json::JValue root = parser.value();
+    const Json::JArray* releases = root.arr();
+    if (!releases) return false;
+    for (const Json::JValue& rel : *releases) {   // GitHub lists releases newest first
+        const Json::JValue* draft = rel.get("draft");
+        if (draft && draft->boolean()) continue;
+        const Json::JValue* name = rel.get("name");
+        std::string title = name ? name->str() : std::string();
+        if (!TitleHasTag(title, tag)) continue;
+        const Json::JValue* assets = rel.get("assets");
+        if (!assets || !assets->arr()) continue;
+        for (const Json::JValue& asset : *assets->arr()) {
+            const Json::JValue* aname = asset.get("name");
+            const Json::JValue* url = asset.get("browser_download_url");
+            if (!aname || !url) continue;
+            std::string n = aname->str();
+            if (n.size() >= 4 && _stricmp(n.c_str() + n.size() - 4, ".dll") == 0) {
+                outUrl = url->str();
+                outName = n;
+                outTitle = title;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------
-// Download latest GitHub release .dll into hidden cache
+// Download the newest release .dll for a game version into the hidden cache
 // ---------------------------------------------------------------------------
-std::wstring DownloadLatestGithubDll(std::wstring& outStatus) {
+std::wstring DownloadLatestGithubDll(const char* tag, std::wstring& outRelease, std::wstring& outStatus) {
     std::vector<char> apiResponse;
     if (!HttpGet(Globals::GITHUB_API_URL, apiResponse, outStatus)) {
         return std::wstring();
     }
 
-    std::string json(apiResponse.begin(), apiResponse.end());
-    std::string assetUrl = ExtractDllAssetUrl(json);
-    if (assetUrl.empty()) {
-        outStatus = L"No .dll asset found in latest release";
+    std::string assetUrl, assetName, title;
+    try {
+        std::string json(apiResponse.begin(), apiResponse.end());
+        if (!FindReleaseDll(json, tag, assetUrl, assetName, title)) {
+            outStatus = L"No release with a .dll for " + Utf8ToWide(tag);
+            return std::wstring();
+        }
+    } catch (...) {
+        outStatus = L"Bad response from GitHub";
         return std::wstring();
     }
-
-    std::wstring wAssetUrl(assetUrl.begin(), assetUrl.end());
-
-    // Derive a filename from the URL
-    std::wstring fileName = L"controllin.dll";
-    size_t slash = wAssetUrl.find_last_of(L'/');
-    if (slash != std::wstring::npos && slash + 1 < wAssetUrl.size()) {
-        fileName = wAssetUrl.substr(slash + 1);
-    }
+    outRelease = Utf8ToWide(title);
 
     std::vector<char> dllData;
-    if (!HttpGet(wAssetUrl, dllData, outStatus) || dllData.empty()) {
+    if (!HttpGet(Utf8ToWide(assetUrl), dllData, outStatus) || dllData.empty()) {
         if (outStatus == L"OK") outStatus = L"Downloaded file is empty";
         return std::wstring();
     }
 
-    std::wstring cacheDir = EnsureCacheDir();
-    std::wstring dllPath = cacheDir + L"\\" + fileName;
+    // Each game version gets its own subfolder so DLLs for different versions never mix.
+    std::wstring versionDir = EnsureCacheDir() + L"\\" + Utf8ToWide(tag);
+    CreateDirectoryW(versionDir.c_str(), nullptr);
+    std::wstring fileName = Utf8ToWide(assetName);
+    if (fileName.find_first_of(L"\\/:") != std::wstring::npos) fileName = L"controllin.dll";
+    std::wstring dllPath = versionDir + L"\\" + fileName;
 
     HANDLE hFile = CreateFileW(dllPath.c_str(), GENERIC_WRITE, 0, nullptr,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
-        outStatus = L"Failed to write DLL to cache";
+        outStatus = (GetLastError() == ERROR_SHARING_VIOLATION)
+            ? L"DLL is in use - restart Minecraft"
+            : L"Failed to write DLL to cache";
         return std::wstring();
     }
 
@@ -155,8 +188,31 @@ std::wstring DownloadLatestGithubDll(std::wstring& outStatus) {
         return std::wstring();
     }
 
-    outStatus = L"Downloaded latest release";
+    outStatus = L"Downloaded " + outRelease;
     return dllPath;
+}
+
+// ---------------------------------------------------------------------------
+// Selected version (HKCU\Software\Controllin, value "Version" = version name)
+// ---------------------------------------------------------------------------
+static const wchar_t* REG_KEY = L"Software\\Controllin";
+
+void LoadSelectedVersion() {
+    wchar_t buf[64]{};
+    DWORD size = sizeof(buf);
+    if (RegGetValueW(HKEY_CURRENT_USER, REG_KEY, L"Version", RRF_RT_REG_SZ, nullptr, buf, &size) != ERROR_SUCCESS)
+        return;
+    for (int i = 0; i < Globals::VERSION_COUNT; ++i)
+        if (wcscmp(buf, Globals::VERSIONS[i].name) == 0) Globals::SELECTED_VERSION = i;
+}
+
+void SaveSelectedVersion() {
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, REG_KEY, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+        return;
+    const wchar_t* name = Globals::VERSIONS[Globals::SELECTED_VERSION].name;
+    RegSetValueExW(key, L"Version", 0, REG_SZ, (const BYTE*)name, (DWORD)((wcslen(name) + 1) * sizeof(wchar_t)));
+    RegCloseKey(key);
 }
 
 // ---------------------------------------------------------------------------

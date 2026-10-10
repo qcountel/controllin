@@ -16,7 +16,7 @@ SET_TARGET_PROPERTIES(${PROJECT_NAME} PROPERTIES LINK_FLAGS "/level='requireAdmi
 
 add_subdirectory(wxWidgets-3.2.0)
 
-target_link_libraries(${PROJECT_NAME} wx::net wx::core wx::base wininet shell32 dwmapi)
+target_link_libraries(${PROJECT_NAME} wx::net wx::core wx::base wininet shell32 dwmapi bcrypt advapi32)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
