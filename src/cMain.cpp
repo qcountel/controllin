@@ -24,7 +24,7 @@ EVT_BUTTON(ID_VERSION, cMain::OnVersionButton)
 wxEND_EVENT_TABLE();
 
 // ---------------------------------------------------------------------------
-// "Controllin +" dialog: price, where to buy, and the HWID needed for the key
+// "CONTROLLIN PRO" dialog: price, where to buy, and the HWID needed for the key
 // ---------------------------------------------------------------------------
 class PlusDialog : public wxDialog {
     static wxStaticText* Text(wxWindow* parent, const wxString& s, const wxColour& fg, int pt) {
@@ -38,7 +38,7 @@ class PlusDialog : public wxDialog {
 
 public:
     explicit PlusDialog(wxWindow* parent)
-        : wxDialog(parent, wxID_ANY, L"Controllin +", wxDefaultPosition, wxDefaultSize,
+        : wxDialog(parent, wxID_ANY, L"Controllin PRO", wxDefaultPosition, wxDefaultSize,
                    wxCAPTION | wxCLOSE_BOX) {
         Theme::ApplyDarkTitleBar((HWND)this->GetHandle());
         this->SetBackgroundColour(Theme::BG);
@@ -47,10 +47,10 @@ public:
         const int flags = wxALIGN_CENTRE_HORIZONTAL | wxLEFT | wxRIGHT;
 
         wxBoxSizer* root = new wxBoxSizer(wxVERTICAL);
-        root->Add(Text(this, L"CONTROLLIN +", Theme::GOLD, 16), 0, flags | wxTOP, 24);
+        root->Add(Text(this, L"CONTROLLIN PRO", Theme::GOLD, 16), 0, flags | wxTOP, 24);
 
         // ---- Price ----
-        root->Add(Text(this, wxString(L"Подписка: ") + Globals::PLUS_PRICE + L" навсегда", Theme::FG, 11),
+        root->Add(Text(this, wxString(L"Подписка: ") + Globals::PLUS_PRICE + L" в месяц", Theme::FG, 11),
                   0, flags | wxTOP, 18);
         root->Add(Text(this, L"Купить можно в Telegram,\nнаписав владельцу", Theme::FG_DIM, 9),
                   0, flags | wxTOP, 10);
@@ -113,7 +113,7 @@ cMain::cMain()
     this->tab_Play->SetFont(Theme::Font(10));
     this->tab_Play->SetSelected(true);
 
-    this->tab_Plus = new FlatButton(this, ID_TAB_PLUS, L"CONTROLLIN +");
+    this->tab_Plus = new FlatButton(this, ID_TAB_PLUS, L"CONTROLLIN PRO");
     this->tab_Plus->SetButtonStyle(FlatButton::STYLE_TAB);
     this->tab_Plus->SetFont(Theme::Font(10));
     this->tab_Plus->SetTabAccent(Theme::GOLD);

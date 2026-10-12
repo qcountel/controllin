@@ -28,8 +28,8 @@ namespace Globals {
     inline constexpr int VERSION_COUNT = (int)(sizeof(VERSIONS) / sizeof(VERSIONS[0]));
     inline int SELECTED_VERSION = 0;   // index into VERSIONS, saved in HKCU\Software\Controllin
 
-    // Controllin + subscription
-    inline const wchar_t* PLUS_PRICE    = L"170р";
+    // CONTROLLIN PRO subscription (same price as the client menu: license.rs PRICE)
+    inline const wchar_t* PLUS_PRICE    = L"130р";
     inline const wchar_t* TELEGRAM_USER = L"@anx1ous";
     inline const wchar_t* TELEGRAM_URL  = L"https://t.me/anx1ous";
 

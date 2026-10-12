@@ -15,6 +15,23 @@
 
 namespace {
 
+// MUST stay identical to the client (controllin-client, crates/client/src/license.rs,
+// hwid_bytes / machine_guid / volume_serial): the key is checked against the HWID the
+// DLL computes inside the game, so the injector has to show exactly the same value.
+//   source = "guid:" + lowercase(trim(MachineGuid))     (if MachineGuid has >= 16 chars)
+//          | "vol:" + %08x serial of the system drive   (fallback)
+//          | "none"
+//   HWID   = first 12 bytes of sha256("controllin-hwid-v1|" + source),
+//            hex upper-case in groups of 4: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
+
+std::string Trim(const std::string& s) {
+    const char* ws = " \t\r\n\v\f";
+    size_t a = s.find_first_not_of(ws);
+    if (a == std::string::npos) return {};
+    size_t b = s.find_last_not_of(ws);
+    return s.substr(a, b - a + 1);
+}
+
 std::string MachineGuid() {
     wchar_t buf[128]{};
     DWORD size = sizeof(buf);
@@ -23,8 +40,25 @@ std::string MachineGuid() {
                      RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, buf, &size) != ERROR_SUCCESS)
         return {};
     std::string out;
-    for (const wchar_t* p = buf; *p; ++p) out += (char)towlower(*p);   // GUID is plain ASCII
+    for (const wchar_t* p = buf; *p; ++p) out += (char)*p;   // GUID is plain ASCII
+    if (out.size() < 16) return {};                            // client: s.len() >= 16
+    out = Trim(out);
+    for (char& c : out)
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
     return out;
+}
+
+std::string VolumeSource() {
+    wchar_t drive[MAX_PATH]{};
+    DWORD n = GetEnvironmentVariableW(L"SystemDrive", drive, MAX_PATH);
+    std::wstring root = (n > 0 && n < MAX_PATH) ? std::wstring(drive) : std::wstring(L"C:");
+    root += L"\\";
+    DWORD serial = 0;
+    if (!GetVolumeInformationW(root.c_str(), nullptr, 0, &serial, nullptr, nullptr, nullptr, 0) || serial == 0)
+        return {};
+    char hex[16]{};
+    wsprintfA(hex, "%08x", serial);
+    return std::string("vol:") + hex;
 }
 
 bool Sha256(const std::string& data, unsigned char out[32]) {
@@ -42,10 +76,15 @@ bool Sha256(const std::string& data, unsigned char out[32]) {
 } // namespace
 
 std::wstring GetHWID() {
+    // ONE source, always the first that works (same order as the client)
+    std::string source;
     std::string guid = MachineGuid();
-    if (guid.empty()) return {};
+    if (!guid.empty()) source = "guid:" + guid;
+    else source = VolumeSource();
+    if (source.empty()) source = "none";
+
     unsigned char digest[32]{};
-    if (!Sha256("controllin:" + guid, digest)) return {};
+    if (!Sha256("controllin-hwid-v1|" + source, digest)) return {};
 
     static const wchar_t* HEX = L"0123456789ABCDEF";
     std::wstring id;
