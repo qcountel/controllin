@@ -240,9 +240,13 @@ void cMain::OnPlayStatus(wxThreadEvent& evt) {
     wxString msg = evt.GetPayload<wxString>();
     if (this->lbl_Status) {
         this->lbl_Status->SetLabel(msg);
+        this->lbl_Status->SetToolTip(msg);
         this->pagePlay->Layout();
         this->pagePlay->Refresh();
     }
+    // Long paths / WinINet messages do not fit the narrow footer.
+    if (msg.StartsWith(L"Download failed:"))
+        wxMessageBox(msg, L"Controllin - download error", wxOK | wxICON_ERROR, this);
 }
 
 void cMain::refreshVersionButton() {

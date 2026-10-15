@@ -2,8 +2,9 @@
 
 #include <string>
 
-// Ensures the hidden .cache folder exists in the working dir and returns its full path.
-std::wstring EnsureCacheDir();
+// Ensures hidden .cache in the current Unicode working directory.
+// Returns an empty path and fills outStatus on failure.
+std::wstring EnsureCacheDir(std::wstring& outStatus);
 
 // Downloads the .dll of the newest controllin release whose title contains `tag` as a word
 // (e.g. "1.16" matches "v2.0.5 1.16") into the hidden cache folder (.cache\<tag>\).

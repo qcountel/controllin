@@ -13,19 +13,80 @@
 #pragma comment(lib, "shell32.lib")
 
 // ---------------------------------------------------------------------------
-// Hidden cache folder
+// Wide Windows paths only: byte-wise ANSI -> wchar_t breaks Cyrillic usernames.
 // ---------------------------------------------------------------------------
-std::wstring EnsureCacheDir() {
-    // WORKING_DIR is an ANSI buffer; build a wide path from it.
-    std::string ansi(Globals::WORKING_DIR);
-    std::wstring base(ansi.begin(), ansi.end());
+static std::wstring FileError(const std::wstring& action, DWORD error,
+                              const std::wstring& path) {
+    wchar_t message[512]{};
+    FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                   nullptr, error, 0, message, 512, nullptr);
+    std::wstring detail(message);
+    while (!detail.empty() && (detail.back() == L'\r' || detail.back() == L'\n' || detail.back() == L' '))
+        detail.pop_back();
+    std::wstring result = action + L" (Win32 " + std::to_wstring(error) + L")";
+    if (!detail.empty()) result += L": " + detail;
+    if (!path.empty()) result += L"\n" + path;
+    return result;
+}
 
-    std::wstring cacheDir = base + L"\\" + Globals::CACHE_DIR_NAME;
+static bool EnsureDirectory(const std::wstring& path, std::wstring& outStatus) {
+    if (CreateDirectoryW(path.c_str(), nullptr)) return true;
+    DWORD error = GetLastError();
+    if (error == ERROR_ALREADY_EXISTS) {
+        DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY))
+            return true;
+    }
+    outStatus = FileError(L"Cannot create cache folder", error, path);
+    return false;
+}
 
-    CreateDirectoryW(cacheDir.c_str(), nullptr); // ignores "already exists"
-    SetFileAttributesW(cacheDir.c_str(), FILE_ATTRIBUTE_HIDDEN);
+std::wstring EnsureCacheDir(std::wstring& outStatus) {
+    DWORD needed = GetCurrentDirectoryW(0, nullptr);
+    if (needed == 0) {
+        outStatus = FileError(L"Cannot read working directory", GetLastError(), L"");
+        return {};
+    }
+    std::vector<wchar_t> buffer(needed);
+    DWORD length = GetCurrentDirectoryW(needed, buffer.data());
+    if (length == 0) {
+        outStatus = FileError(L"Cannot read working directory", GetLastError(), L"");
+        return {};
+    }
+    if (length >= needed) {
+        outStatus = L"Working directory changed - try again";
+        return {};
+    }
+    std::wstring cacheDir(buffer.data(), length);
+    if (cacheDir.back() != L'\\' && cacheDir.back() != L'/') cacheDir += L'\\';
+    cacheDir += Globals::CACHE_DIR_NAME;
+    if (!EnsureDirectory(cacheDir, outStatus)) return {};
 
+    DWORD attributes = GetFileAttributesW(cacheDir.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
+        SetFileAttributesW(cacheDir.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
     return cacheDir;
+}
+
+// WinINet errors often have no text in the system message table.
+static std::wstring NetworkError(const std::wstring& action, DWORD error,
+                                 const std::wstring& url) {
+    wchar_t message[512]{};
+    DWORD length = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                                  nullptr, error, 0, message, 512, nullptr);
+    if (length == 0) {
+        HMODULE module = GetModuleHandleW(L"wininet.dll");
+        if (module) FormatMessageW(FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_IGNORE_INSERTS,
+                                   module, error, 0, message, 512, nullptr);
+    }
+    std::wstring detail(message);
+    while (!detail.empty() && (detail.back() == L'\r' || detail.back() == L'\n' || detail.back() == L' '))
+        detail.pop_back();
+    std::wstring result = action + L" (WinINet " + std::to_wstring(error) + L")";
+    if (!detail.empty()) result += L": " + detail;
+    result += L"\n" + url;
+    OutputDebugStringW((result + L"\n").c_str());
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,9 +100,14 @@ static bool HttpGet(const std::wstring& url, std::vector<char>& outData, std::ws
         INTERNET_OPEN_TYPE_PRECONFIG,
         nullptr, nullptr, 0);
     if (!hInternet) {
-        outStatus = L"InternetOpen failed";
+        outStatus = NetworkError(L"InternetOpen failed", GetLastError(), url);
         return false;
     }
+
+    DWORD connectTimeout = 15000, sendTimeout = 15000, receiveTimeout = 30000;
+    InternetSetOptionW(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &connectTimeout, sizeof(connectTimeout));
+    InternetSetOptionW(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &sendTimeout, sizeof(sendTimeout));
+    InternetSetOptionW(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &receiveTimeout, sizeof(receiveTimeout));
 
     // GitHub API requires a User-Agent (set above) and we follow redirects by default.
     DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE |
@@ -51,7 +117,8 @@ static bool HttpGet(const std::wstring& url, std::vector<char>& outData, std::ws
                                       L"Accept: application/vnd.github+json\r\n",
                                       (DWORD)-1L, flags, 0);
     if (!hUrl) {
-        outStatus = L"InternetOpenUrl failed";
+        DWORD error = GetLastError();
+        outStatus = NetworkError(L"InternetOpenUrl failed", error, url);
         InternetCloseHandle(hInternet);
         return false;
     }
@@ -59,10 +126,15 @@ static bool HttpGet(const std::wstring& url, std::vector<char>& outData, std::ws
     // Check HTTP status code
     DWORD statusCode = 0;
     DWORD len = sizeof(statusCode);
-    HttpQueryInfoW(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
-                   &statusCode, &len, nullptr);
-    if (statusCode >= 400) {
-        outStatus = L"HTTP error " + std::to_wstring(statusCode);
+    if (!HttpQueryInfoW(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+                        &statusCode, &len, nullptr)) {
+        outStatus = NetworkError(L"Cannot read HTTP status", GetLastError(), url);
+        InternetCloseHandle(hUrl);
+        InternetCloseHandle(hInternet);
+        return false;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+        outStatus = L"HTTP error " + std::to_wstring(statusCode) + L"\n" + url;
         InternetCloseHandle(hUrl);
         InternetCloseHandle(hInternet);
         return false;
@@ -70,7 +142,16 @@ static bool HttpGet(const std::wstring& url, std::vector<char>& outData, std::ws
 
     char buffer[8192];
     DWORD bytesRead = 0;
-    while (InternetReadFile(hUrl, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
+    for (;;) {
+        if (!InternetReadFile(hUrl, buffer, sizeof(buffer), &bytesRead)) {
+            DWORD error = GetLastError();
+            outStatus = NetworkError(L"Download interrupted", error, url);
+            outData.clear();
+            InternetCloseHandle(hUrl);
+            InternetCloseHandle(hInternet);
+            return false;
+        }
+        if (bytesRead == 0) break;
         outData.insert(outData.end(), buffer, buffer + bytesRead);
     }
 
@@ -163,29 +244,56 @@ std::wstring DownloadLatestGithubDll(const char* tag, std::wstring& outRelease, 
         return std::wstring();
     }
 
-    // Each game version gets its own subfolder so DLLs for different versions never mix.
-    std::wstring versionDir = EnsureCacheDir() + L"\\" + Utf8ToWide(tag);
-    CreateDirectoryW(versionDir.c_str(), nullptr);
+    // Each game version gets its own subfolder so DLLs never mix.
+    std::wstring cacheDir = EnsureCacheDir(outStatus);
+    if (cacheDir.empty()) return {};
+    std::wstring versionDir = cacheDir + L"\\" + Utf8ToWide(tag);
+    if (!EnsureDirectory(versionDir, outStatus)) return {};
     std::wstring fileName = Utf8ToWide(assetName);
-    if (fileName.find_first_of(L"\\/:") != std::wstring::npos) fileName = L"controllin.dll";
+    if (fileName.empty() || fileName.find_first_of(L"\\/:") != std::wstring::npos)
+        fileName = L"controllin.dll";
     std::wstring dllPath = versionDir + L"\\" + fileName;
 
-    HANDLE hFile = CreateFileW(dllPath.c_str(), GENERIC_WRITE, 0, nullptr,
-                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // A failed download/write must never truncate a previously good DLL.
+    std::wstring tempPath = dllPath + L".part-" + std::to_wstring(GetCurrentProcessId())
+                            + L"-" + std::to_wstring(GetTickCount64());
+    HANDLE hFile = CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0, nullptr,
+                               CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
-        outStatus = (GetLastError() == ERROR_SHARING_VIOLATION)
-            ? L"DLL is in use - restart Minecraft"
-            : L"Failed to write DLL to cache";
-        return std::wstring();
+        outStatus = FileError(L"Cannot write DLL cache", GetLastError(), tempPath);
+        return {};
     }
 
-    DWORD written = 0;
-    WriteFile(hFile, dllData.data(), (DWORD)dllData.size(), &written, nullptr);
-    CloseHandle(hFile);
-
-    if (written != dllData.size()) {
-        outStatus = L"Incomplete write to cache";
-        return std::wstring();
+    DWORD writeError = ERROR_SUCCESS;
+    size_t offset = 0;
+    while (offset < dllData.size()) {
+        DWORD chunk = static_cast<DWORD>((std::min)(dllData.size() - offset,
+                                                  static_cast<size_t>(1024 * 1024)));
+        DWORD written = 0;
+        if (!WriteFile(hFile, dllData.data() + offset, chunk, &written, nullptr)) {
+            writeError = GetLastError();
+            break;
+        }
+        if (written == 0) {
+            writeError = ERROR_WRITE_FAULT;
+            break;
+        }
+        offset += written;
+    }
+    if (writeError == ERROR_SUCCESS && !FlushFileBuffers(hFile)) writeError = GetLastError();
+    if (!CloseHandle(hFile) && writeError == ERROR_SUCCESS) writeError = GetLastError();
+    if (writeError != ERROR_SUCCESS) {
+        DeleteFileW(tempPath.c_str());
+        outStatus = FileError(L"Cannot finish DLL cache write", writeError, dllPath);
+        return {};
+    }
+    if (!MoveFileExW(tempPath.c_str(), dllPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DWORD error = GetLastError();
+        DeleteFileW(tempPath.c_str());
+        outStatus = FileError(error == ERROR_SHARING_VIOLATION
+            ? L"DLL is in use - restart Minecraft"
+            : L"Cannot replace cached DLL", error, dllPath);
+        return {};
     }
 
     outStatus = L"Downloaded " + outRelease;
